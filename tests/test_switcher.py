@@ -14,6 +14,23 @@ class TestSwitcher(unittest.TestCase):
                 with self.assertRaises(s.SwitchError):
                     s.checked_path(root,path)
 
+    def test_trusted_symlink_target(self):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d)
+            root=base/"MagicMirror"
+            trusted=base/"magicmirror-config"
+            root.mkdir()
+            trusted.mkdir()
+            (trusted/"config.js").touch()
+            (root/"config.js").symlink_to(trusted/"config.js")
+            with self.assertRaises(s.SwitchError):
+                s.checked_path(root,"config.js")
+            self.assertEqual(s.checked_path(root,"config.js",[trusted]),trusted/"config.js")
+            (base/"other.js").touch()
+            (root/"other.js").symlink_to(base/"other.js")
+            with self.assertRaises(s.SwitchError):
+                s.checked_path(root,"other.js",[trusted])
+
     def test_environment(self):
         self.assertEqual(s.profile_env("dojo",{"config":"config/config.js","css":None}),
                          "MM_SWITCHER_PROFILE=dojo\nMM_CONFIG_FILE=config/config.js\n")
