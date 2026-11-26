@@ -1,6 +1,6 @@
 # MM-ConfigSwitcher
 
-Version 0.1.0 — a standalone configuration profile switcher for MagicMirror² on Linux with systemd user services.
+Version 0.1.1 — a standalone configuration profile switcher for MagicMirror² on Linux with systemd user services.
 
 One MagicMirror installation, multiple named profiles, independent config.js and CSS, one active profile at a time. No MagicMirror module or root privileges required. This is an initial version; test on your installation before relying on unattended switching.
 
@@ -36,6 +36,16 @@ bash install.sh --label "Staffanstorps JK" --health-port 8080
 Private repository: the Pi needs authorized GitHub access. Port 8080 is an example; set the actual local HTTP port, or omit --health-port for systemd-only health checks (e.g. custom HTTPS). If config/custom.css is the file you want to explicitly select, add --css config/custom.css. Otherwise no CSS environment override is added to the baseline, and MagicMirror uses its configured CSS. Legacy css/custom.css installations may require manual migration or explicit selection to avoid MagicMirror moving the file automatically.
 
 Install validates and records the existing default config as profile dojo, copies existing config/CSS to a private backup folder, creates its own drop-in, and starts only the switcher service. It does **not** restart MagicMirror. Review the configuration before switching. If installed without a custom path, files are under ~/.config/mm-configswitcher (or XDG_CONFIG_HOME). Include ~/.local/bin in PATH or use the full path to mm-switch.
+
+### Symlinked configuration repositories
+
+If MagicMirror's config/config.js or config/custom.css is a symbolic link to a trusted separate repository, explicitly allow its directory at initialization:
+
+```sh
+bash install.sh --label "Staffanstorps JK" --css config/custom.css --allow-root "$HOME/magicmirror-config"
+```
+
+Repeat --allow-root for additional trusted directories. Profile paths are still relative to MagicMirror; only resolved targets in MagicMirror or explicitly trusted directories are accepted. Existing links and their targets are not changed; the baseline backup copies file contents, not the links.
 
 ## Adding an additional profile
 
