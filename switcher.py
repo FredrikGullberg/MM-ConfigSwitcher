@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 STATE = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home()/".config"))) / "mm-configswitcher"
 USER_UNITS = STATE.parent / "systemd/user"
 CONFIG = STATE / "profiles.json"
@@ -135,6 +135,25 @@ def service_state(cfg):
         return {}
     return dict(line.split("=",1) for line in r.stdout.splitlines() if "=" in line)
 
+def process_profile_env(pid):
+    """Read only profile variables, not other environment secrets."""
+    if not str(pid).isdigit() or int(pid) <= 0:
+        return {}
+    try:
+        entries = (Path("/proc") / str(pid) / "environ").read_bytes().split(b"\0")
+    except OSError:
+        return {}
+    keys = {b"MM_SWITCHER_PROFILE", b"MM_CONFIG_FILE", b"MM_CUSTOMCSS_FILE"}
+    return {k.decode(): v.decode(errors="replace") for entry in entries
+            for k, sep, v in [entry.partition(b"=")] if sep and k in keys}
+
+def profile_environment_matches(pid, name, profile):
+    if not name:
+        return False
+    expected = dict(line.split("=", 1) for line in profile_env(name, profile).splitlines())
+    actual = process_profile_env(pid)
+    return all(actual.get(k) == v for k, v in expected.items())
+
 def http_ready(port):
     if port is None:
         return True
@@ -155,7 +174,7 @@ def wait_ready(cfg, profile):
     while time.monotonic() < deadline:
         state = service_state(cfg)
         identity = (state.get("MainPID"),state.get("NRestarts"))
-        if state.get("ActiveState")=="active" and state.get("SubState")=="running" and identity[0] not in (None,"0") and http_ready(profile.get("health_port")):
+        if state.get("ActiveState")=="active" and state.get("SubState")=="running" and identity[0] not in (None,"0") and profile_environment_matches(identity[0], selected(), profile) and http_ready(profile.get("health_port")):
             if last != identity or stable_since is None:
                 stable_since = time.monotonic()
             if time.monotonic()-stable_since >= cfg.get("stable_seconds",8):
@@ -178,6 +197,12 @@ def quote_unit(value):
     return '"' + str(value).replace("\\","\\\\").replace('"','\\"').replace("%","%%") + '"'
 
 def dropin_text():
+    path = str(ENV)
+    if not ENV.is_absolute() or any(c in path for c in "\n\r*?[") or path != path.rstrip():
+        raise SwitchError("Unsupported EnvironmentFile path")
+    return "[Service]\nEnvironmentFile="+path.replace("%","%%")+"\n"
+
+def legacy_dropin_text():
     return "[Service]\nEnvironmentFile="+quote_unit(ENV)+"\n"
 
 def assert_installed(cfg):
@@ -282,11 +307,13 @@ def install():
                    "[Install]\nWantedBy=default.target\n")
         for path, expected in ((drop,dropin_text()),(unit,service)):
             if path.exists() and path.read_text()!=expected:
-                raise SwitchError("Refusing to overwrite existing unit: "+str(path))
+                if path != drop or path.read_text() != legacy_dropin_text():
+                    raise SwitchError("Refusing to overwrite existing unit: "+str(path))
         atomic(drop,dropin_text(),0o644)
         atomic(unit,service,0o644)
         require(ctl("daemon-reload"),"systemd daemon-reload failed")
         require(ctl("enable","--now",WEB_UNIT),"Could not start switcher web service")
+        require(ctl("restart",WEB_UNIT),"Could not reload switcher web service")
         print("Installed. Existing MagicMirror start command unchanged; no mirror restart performed.")
 
 def uninstall():
@@ -305,8 +332,13 @@ def uninstall():
 
 def status():
     cfg=settings()
-    return {"version":VERSION,"selected":selected(),"service":cfg["service"],
-            "systemd":service_state(cfg),"pending":PENDING.exists(),
+    state=service_state(cfg)
+    actual=process_profile_env(state.get("MainPID")) if state.get("ActiveState")=="active" else {}
+    name=selected()
+    return {"version":VERSION,"selected":name,"service":cfg["service"],
+            "running_profile":actual.get("MM_SWITCHER_PROFILE"),
+            "environment_matches":name in cfg["profiles"] and profile_environment_matches(state.get("MainPID"),name,cfg["profiles"][name]),
+            "systemd":state,"pending":PENDING.exists(),
             "profiles":{k:v["label"] for k,v in cfg["profiles"].items()}}
 
 def page(message="", error=False):
