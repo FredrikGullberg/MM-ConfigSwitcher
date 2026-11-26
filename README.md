@@ -1,6 +1,6 @@
 # MM-ConfigSwitcher
 
-Version 0.1.1 — a standalone configuration profile switcher for MagicMirror² on Linux with systemd user services.
+Version 0.1.2 — a standalone configuration profile switcher for MagicMirror² on Linux with systemd user services.
 
 One MagicMirror installation, multiple named profiles, independent config.js and CSS, one active profile at a time. No MagicMirror module or root privileges required. This is an initial version; test on your installation before relying on unattended switching.
 
@@ -46,6 +46,10 @@ bash install.sh --label "Staffanstorps JK" --css config/custom.css --allow-root 
 ```
 
 Repeat --allow-root for additional trusted directories. Profile paths are still relative to MagicMirror; only resolved targets in MagicMirror or explicitly trusted directories are accepted. Existing links and their targets are not changed; the baseline backup copies file contents, not the links.
+
+## Upgrade from 0.1.1
+
+Run git pull, python3 -m unittest discover -v, then python3 switcher.py install. This migrates the exact old managed drop-in to an unquoted EnvironmentFile path and restarts only the switcher service. Existing profile settings and MagicMirror configuration are retained. Restart/switch MagicMirror explicitly afterwards. Version 0.1.2 checks the profile environment of the systemd MainPID during startup; status reports running_profile and environment_matches. This is not proof of Electron rendering or a check of separately scoped child processes.
 
 ## Adding an additional profile
 
