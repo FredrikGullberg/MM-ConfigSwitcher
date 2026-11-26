@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 STATE = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home()/".config"))) / "mm-configswitcher"
 USER_UNITS = STATE.parent / "systemd/user"
 CONFIG = STATE / "profiles.json"
@@ -85,11 +85,11 @@ def settings():
         raise SwitchError("Not initialized. Run install.sh or switcher.py init.")
     return read_json(CONFIG)
 
-def checked_path(root, name):
+def checked_path(root, name, allowed_roots=()):
     if not isinstance(name, str) or not REL.fullmatch(name) or Path(name).is_absolute() or ".." in Path(name).parts:
         raise SwitchError("Use a safe relative path within MagicMirror.")
     target = (root/name).resolve()
-    if not target.is_relative_to(root.resolve()) or not target.is_file():
+    if not any(target.is_relative_to(Path(p).resolve()) for p in (root, *allowed_roots)) or not target.is_file():
         raise SwitchError("Missing file or path outside MagicMirror: "+name)
     return target
 
@@ -113,9 +113,9 @@ def validate(cfg, name):
         raise SwitchError("Unknown profile: "+name)
     root = Path(cfg["mm_root"])
     profile = cfg["profiles"][name]
-    checked_path(root, profile["config"])
+    checked_path(root, profile["config"], cfg.get("allowed_roots", []))
     if profile.get("css"):
-        checked_path(root, profile["css"])
+        checked_path(root, profile["css"], cfg.get("allowed_roots", []))
     env = dict(os.environ)
     env.pop("MM_CONFIG_FILE", None)
     env.pop("MM_CUSTOMCSS_FILE", None)
@@ -233,7 +233,10 @@ def initialize(args):
             raise SwitchError("MagicMirror package.json not found")
         require(ctl("cat",args.service),"Existing systemd user service not found")
         profile = {"label":args.label,"config":args.config,"css":args.css,"health_port":args.health_port}
-        cfg = {"mm_root":str(root),"node":str(Path(node).resolve()),"service":args.service,
+        allowed_roots = [str(Path(p).expanduser().resolve(strict=True)) for p in args.allow_root]
+        if any(not Path(p).is_dir() for p in allowed_roots):
+            raise SwitchError("Allowed roots must be directories")
+        cfg = {"mm_root":str(root),"allowed_roots":allowed_roots,"node":str(Path(node).resolve()),"service":args.service,
                "startup_timeout":45,"stable_seconds":8,"profiles":{args.id:profile}}
         if not ID.fullmatch(args.id):
             raise SwitchError("Invalid profile ID")
@@ -409,6 +412,7 @@ def main():
     init.add_argument("--label",default="Dojo")
     init.add_argument("--config",default="config/config.js")
     init.add_argument("--css")
+    init.add_argument("--allow-root", action="append", default=[], help="Additional trusted directory for symlink targets; repeatable")
     init.add_argument("--health-port",type=port)
     add=commands.add_parser("add")
     add.add_argument("id")
