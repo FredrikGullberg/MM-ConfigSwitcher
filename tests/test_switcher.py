@@ -31,6 +31,20 @@ class TestSwitcher(unittest.TestCase):
             with self.assertRaises(s.SwitchError):
                 s.checked_path(root,"other.js",[trusted])
 
+    def test_dropin_environmentfile_unquoted(self):
+        with patch.object(s,"ENV",Path("/home/test/.config/mm-configswitcher/active.env")):
+            self.assertEqual(s.dropin_text(),"[Service]\nEnvironmentFile=/home/test/.config/mm-configswitcher/active.env\n")
+            self.assertNotEqual(s.dropin_text(),s.legacy_dropin_text())
+
+    def test_running_profile_environment(self):
+        p={"config":"config/sm.js","css":"config/sm.css"}
+        env={"MM_SWITCHER_PROFILE":"sm","MM_CONFIG_FILE":"config/sm.js","MM_CUSTOMCSS_FILE":"config/sm.css"}
+        with patch.object(s,"process_profile_env",return_value=env):
+            self.assertTrue(s.profile_environment_matches("123","sm",p))
+            self.assertFalse(s.profile_environment_matches("123","dojo",p))
+        with patch.object(s,"process_profile_env",return_value={}):
+            self.assertFalse(s.profile_environment_matches("123","sm",p))
+
     def test_environment(self):
         self.assertEqual(s.profile_env("dojo",{"config":"config/config.js","css":None}),
                          "MM_SWITCHER_PROFILE=dojo\nMM_CONFIG_FILE=config/config.js\n")
